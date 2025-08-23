@@ -18,16 +18,27 @@
             align-items: center;
         }
         button { margin-left: 10px; }
+        #instructions {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            font-size: 16px;
+            color: #333;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
-    <!-- Painikkeet -->
+    <div id="instructions">
+        <p>Sytytä tulitikku ja klikkaa sen jälkeen koeputkea. Mitä kaasuja koeputkista vapautuu?</p>
+    </div>
+
     <div id="controls">
         <button id="light-match-button">Sytytä tulitikku</button>
         <button id="reset-button">Aloita alusta</button>
     </div>
 
-    <!-- Import map for Three.js and its addons -->
     <script type="importmap">
         {
             "imports": {
@@ -37,7 +48,6 @@
         }
     </script>
 
-    <!-- Main application script -->
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -47,7 +57,7 @@
         // 1. Basic Setup
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const INITIAL_CAMERA_POS = new THREE.Vector3(0, 4, 9);
+        const INITIAL_CAMERA_POS = new THREE.Vector3(0, 4, 10);
         camera.position.copy(INITIAL_CAMERA_POS);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -154,7 +164,7 @@
             matchstickHead.position.y = 1.25;
             matchstick.add(stick);
             matchstick.add(matchstickHead);
-            matchstick.rotation.x = -Math.PI / 6;
+            matchstick.rotation.x = -Math.PI / 3;
             matchstick.position.copy(MATCHSTICK_START_POS);
             scene.add(matchstick);
         }
@@ -204,15 +214,20 @@
             smokeParticles.push(particle);
             scene.add(particle);
         }
-
+        
         function createExplosion(origin) {
-            for (let i = 0; i < 50; i++) {
-                const particleGeom = new THREE.SphereGeometry(Math.random() * 0.1 + 0.05, 8, 8);
+            const explosionLight = new THREE.PointLight(0xffd580, 50, 15);
+            explosionLight.position.copy(origin);
+            scene.add(explosionLight);
+            setTimeout(() => scene.remove(explosionLight), 200);
+
+            for (let i = 0; i < 150; i++) {
+                const particleGeom = new THREE.SphereGeometry(Math.random() * 0.15 + 0.05, 8, 8);
                 const material = flameMaterials[Math.floor(Math.random() * flameMaterials.length)];
                 const particle = new THREE.Mesh(particleGeom, material);
                 particle.position.copy(origin);
-                particle.userData.velocity = new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).normalize().multiplyScalar(Math.random() * 0.2);
-                particle.userData.lifespan = Math.random() * 0.3 + 0.1;
+                particle.userData.velocity = new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).normalize().multiplyScalar(Math.random() * 0.4 + 0.1);
+                particle.userData.lifespan = Math.random() * 0.4 + 0.2;
                 particle.userData.initialLifespan = particle.userData.lifespan;
                 flameParticles.push(particle);
                 scene.add(particle);
@@ -230,9 +245,9 @@
             const intersects = raycaster.intersectObjects(clickableObjects);
             if (intersects.length > 0) {
                 const clickedTubeGroup = intersects[0].object.parent;
-                const TUBE_TOP_Y = clickedTubeGroup.position.y + 3.2;
+                const TUBE_TOP_Y = clickedTubeGroup.position.y + 3.2; 
                 
-                const targetForHead = new THREE.Vector3(clickedTubeGroup.position.x, TUBE_TOP_Y, clickedTubeGroup.position.z);
+                const targetForHead = new THREE.Vector3(clickedTubeGroup.position.x, TUBE_TOP_Y, clickedTubeGroup.position.z + 0.2);
                 const headLocalOffset = new THREE.Vector3(0, 1.25, 0);
                 const rotatedOffset = headLocalOffset.clone().applyEuler(matchstick.rotation);
                 
@@ -291,7 +306,7 @@
                     const tubeTopPos = new THREE.Vector3(tube.group.position.x, tube.group.position.y + 3.0, tube.group.position.z);
                     const distance = flameOrigin.distanceTo(tubeTopPos);
 
-                    if (distance < 0.5 && !tube.reactionTriggered) {
+                    if (distance < 0.6 && !tube.reactionTriggered) {
                         if (tube.id === 'co2') {
                             isMatchLit = false;
                             for(let i=0; i<20; i++) createSmokeParticle(flameOrigin);
