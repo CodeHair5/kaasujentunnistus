@@ -7,10 +7,22 @@
     <style>
         body { margin: 0; background-color: #f0f0f0; overflow: hidden; font-family: sans-serif; }
         canvas { display: block; }
-        #controls {
+        #instructions-container {
             position: absolute;
             top: 10px;
-            left: 10px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }
+        #controls-container {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+        #controls {
             padding: 10px;
             background: rgba(255, 255, 255, 0.8);
             border-radius: 5px;
@@ -19,24 +31,28 @@
         }
         button { margin-left: 10px; }
         #instructions {
-            position: absolute;
-            top: 10px;
-            width: 100%;
-            text-align: center;
             font-size: 16px;
             color: #333;
-            pointer-events: none;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 10px;
+            border-radius: 5px;
         }
     </style>
+    <!-- Lisätty Tone.js-äänikirjasto -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
 </head>
 <body>
-    <div id="instructions">
-        <p>Sytytä tulitikku ja klikkaa sen jälkeen koeputkea. Mitä kaasuja koeputkista vapautuu?</p>
+    <div id="instructions-container">
+        <div id="instructions">
+            <p>Sytytä tulitikku ja klikkaa sen jälkeen koeputkea. Mitä kaasuja koeputkista vapautuu?</p>
+        </div>
     </div>
 
-    <div id="controls">
-        <button id="light-match-button">Sytytä tulitikku</button>
-        <button id="reset-button">Aloita alusta</button>
+    <div id="controls-container">
+        <div id="controls">
+            <button id="light-match-button">Sytytä tulitikku</button>
+            <button id="reset-button">Aloita alusta</button>
+        </div>
     </div>
 
     <script type="importmap">
@@ -100,7 +116,7 @@
         const smokeMaterial = new THREE.MeshBasicMaterial({ color: 0x888888, transparent: true, opacity: 0.5, blending: THREE.NormalBlending, depthWrite: false });
 
         // 4. Global variables
-        let bubbles = [], flameParticles = [], smokeParticles = [];
+        let bubbles = [], activeFlameParticles = [], activeSmokeParticles = [];
         const testTubes = [];
         const clickableObjects = [];
         const raycaster = new THREE.Raycaster();
@@ -111,6 +127,12 @@
         const clock = new THREE.Clock();
         let matchstickTargetPosition = null;
         const MATCHSTICK_START_POS = new THREE.Vector3(-4, 5, 0);
+        
+        let explosionSynth, matchStrikeSynth, oxygenFlameSynth;
+        let isOxygenSoundPlaying = false;
+        
+        const flameParticlePool = [];
+        const smokeParticlePool = [];
 
         // 5. Helper function to create a test tube
         function createTestTube(position, liquidLevel, id) {
@@ -175,6 +197,22 @@
         createTestTube(new THREE.Vector3(2.0, 1.5, 0), 0.25, 'h2');
         createMatchstick();
 
+        function initPools() {
+            for (let i = 0; i < 200; i++) {
+                const particleGeom = new THREE.SphereGeometry(1, 8, 8);
+                const flameParticle = new THREE.Mesh(particleGeom, flameMaterials[0]);
+                flameParticle.visible = false;
+                flameParticlePool.push(flameParticle);
+                scene.add(flameParticle);
+
+                const smokeParticle = new THREE.Mesh(particleGeom, smokeMaterial);
+                smokeParticle.visible = false;
+                smokeParticlePool.push(smokeParticle);
+                scene.add(smokeParticle);
+            }
+        }
+        initPools();
+
         // 7. Particle Logic
         function createBubble(tubeData) {
             const bubbleSize = Math.random() * 0.04 + 0.02;
@@ -192,51 +230,88 @@
             scene.add(bubble);
         }
 
+        function getFromPool(pool) {
+            const particle = pool.find(p => !p.visible);
+            return particle;
+        }
+
         function createFlameParticle(origin) {
+            const particle = getFromPool(flameParticlePool);
+            if (!particle) return;
+
+            particle.material = flameMaterials[Math.floor(Math.random() * flameMaterials.length)];
             const particleSize = Math.random() * 0.1 * flameIntensity + 0.1;
-            const particleGeom = new THREE.SphereGeometry(particleSize, 8, 8);
-            const material = flameMaterials[Math.floor(Math.random() * flameMaterials.length)];
-            const particle = new THREE.Mesh(particleGeom, material);
+            particle.userData.initialSize = particleSize;
+            particle.scale.setScalar(particleSize);
             particle.position.copy(origin);
             particle.userData.velocity = new THREE.Vector3( (Math.random() - 0.5) * 0.02, (Math.random() * 0.03 + 0.04) * flameIntensity, (Math.random() - 0.5) * 0.02);
             particle.userData.initialLifespan = Math.random() * 0.6 + 0.4;
             particle.userData.lifespan = particle.userData.initialLifespan;
-            flameParticles.push(particle);
-            scene.add(particle);
+            particle.visible = true;
+            activeFlameParticles.push(particle);
         }
 
         function createSmokeParticle(origin) {
-            const particleGeom = new THREE.SphereGeometry(0.05, 8, 8);
-            const particle = new THREE.Mesh(particleGeom, smokeMaterial.clone());
+            const particle = getFromPool(smokeParticlePool);
+            if (!particle) return;
+
+            particle.scale.setScalar(0.05);
             particle.position.copy(origin);
             particle.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 0.01, Math.random() * 0.02 + 0.01, (Math.random() - 0.5) * 0.01);
             particle.userData.lifespan = Math.random() * 1.0 + 0.5;
-            smokeParticles.push(particle);
-            scene.add(particle);
+            particle.visible = true;
+            activeSmokeParticles.push(particle);
         }
         
         function createExplosion(origin) {
+            if (explosionSynth) {
+                explosionSynth.triggerAttackRelease("8n");
+            }
+
             const explosionLight = new THREE.PointLight(0xffd580, 50, 15);
             explosionLight.position.copy(origin);
             scene.add(explosionLight);
             setTimeout(() => scene.remove(explosionLight), 200);
 
             for (let i = 0; i < 150; i++) {
-                const particleGeom = new THREE.SphereGeometry(Math.random() * 0.15 + 0.05, 8, 8);
-                const material = flameMaterials[Math.floor(Math.random() * flameMaterials.length)];
-                const particle = new THREE.Mesh(particleGeom, material);
+                const particle = getFromPool(flameParticlePool);
+                if (!particle) continue;
+
+                particle.material = flameMaterials[Math.floor(Math.random() * flameMaterials.length)];
+                const particleSize = Math.random() * 0.15 + 0.05;
+                particle.userData.initialSize = particleSize;
+                particle.scale.setScalar(particleSize);
                 particle.position.copy(origin);
                 particle.userData.velocity = new THREE.Vector3((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).normalize().multiplyScalar(Math.random() * 0.4 + 0.1);
                 particle.userData.lifespan = Math.random() * 0.4 + 0.2;
                 particle.userData.initialLifespan = particle.userData.lifespan;
-                flameParticles.push(particle);
-                scene.add(particle);
+                particle.visible = true;
+                activeFlameParticles.push(particle);
             }
         }
 
         // 8. Control Logic
-        document.getElementById('light-match-button').addEventListener('click', () => { isMatchLit = true; });
+        document.getElementById('light-match-button').addEventListener('click', () => {
+             if (!isMatchLit && matchStrikeSynth) {
+                matchStrikeSynth.triggerAttackRelease("16n");
+            }
+            isMatchLit = true;
+        });
         document.getElementById('reset-button').addEventListener('click', resetSimulation);
+
+        let audioStarted = false;
+        function initAudio() {
+            if (audioStarted) return;
+            Tone.start();
+            explosionSynth = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0 } }).toDestination();
+            matchStrikeSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).toDestination();
+            oxygenFlameSynth = new Tone.NoiseSynth({ noise: { type: 'pink', playbackRate: 0.5 }, volume: -20, envelope: { attack: 0.1, decay: 0.2, sustain: 1.0 } }).toDestination();
+            explosionSynth.triggerAttackRelease("32n", "+0.1", 0);
+            matchStrikeSynth.triggerAttackRelease("32n", "+0.1", 0);
+            audioStarted = true;
+        }
+        window.addEventListener('click', initAudio, { once: true });
+
 
         window.addEventListener('click', (event) => {
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -257,10 +332,14 @@
 
         function resetSimulation() {
             isMatchLit = false;
+            if (isOxygenSoundPlaying && oxygenFlameSynth) {
+                oxygenFlameSynth.triggerRelease();
+                isOxygenSoundPlaying = false;
+            }
             bubbles.forEach(b => scene.remove(b));
-            flameParticles.forEach(p => scene.remove(p));
-            smokeParticles.forEach(p => scene.remove(p));
-            bubbles = []; flameParticles = []; smokeParticles = [];
+            activeFlameParticles.forEach(p => p.visible = false);
+            activeSmokeParticles.forEach(p => p.visible = false);
+            bubbles = []; activeFlameParticles = []; activeSmokeParticles = [];
             testTubes.forEach(tube => {
                 tube.reactionTriggered = false;
                 tube.glassMesh.material = glassMaterial;
@@ -300,6 +379,7 @@
 
             matchstickHead.getWorldPosition(flameOrigin);
             flameIntensity = 1.0;
+            let isOverOxygenTube = false;
             
             if (isMatchLit) {
                 for (const tube of testTubes) {
@@ -313,6 +393,7 @@
                         }
                         if (tube.id === 'o2') {
                             flameIntensity = 3.0;
+                            isOverOxygenTube = true;
                         }
                         if (tube.id === 'h2') {
                             isMatchLit = false;
@@ -329,27 +410,37 @@
                 }
             }
             
-            for (let i = flameParticles.length - 1; i >= 0; i--) {
-                const particle = flameParticles[i];
+            if (oxygenFlameSynth) {
+                if (isOverOxygenTube && !isOxygenSoundPlaying) {
+                    oxygenFlameSynth.triggerAttack();
+                    isOxygenSoundPlaying = true;
+                } else if (!isOverOxygenTube && isOxygenSoundPlaying) {
+                    oxygenFlameSynth.triggerRelease();
+                    isOxygenSoundPlaying = false;
+                }
+            }
+
+            for (let i = activeFlameParticles.length - 1; i >= 0; i--) {
+                const particle = activeFlameParticles[i];
                 particle.userData.lifespan -= deltaTime;
                 if (particle.userData.lifespan <= 0) {
-                    scene.remove(particle);
-                    flameParticles.splice(i, 1);
+                    particle.visible = false;
+                    activeFlameParticles.splice(i, 1);
                 } else {
                     particle.position.add(particle.userData.velocity);
                     const lifePercent = particle.userData.lifespan / particle.userData.initialLifespan;
-                    particle.scale.setScalar(lifePercent * flameIntensity);
+                    particle.scale.setScalar(lifePercent * flameIntensity * particle.userData.initialSize);
                 }
             }
-            for (let i = smokeParticles.length - 1; i >= 0; i--) {
-                const particle = smokeParticles[i];
+            for (let i = activeSmokeParticles.length - 1; i >= 0; i--) {
+                const particle = activeSmokeParticles[i];
                 particle.userData.lifespan -= deltaTime;
                 if (particle.userData.lifespan <= 0) {
-                    scene.remove(particle);
-                    smokeParticles.splice(i, 1);
+                    particle.visible = false;
+                    activeSmokeParticles.splice(i, 1);
                 } else {
                     particle.position.add(particle.userData.velocity);
-                    particle.material.opacity = particle.userData.lifespan / (1.0 + 0.5);
+                    particle.material.opacity = (particle.userData.lifespan / (1.0 + 0.5)) * 0.5;
                 }
             }
 
@@ -367,3 +458,5 @@
     </script>
 </body>
 </html>
+
+
