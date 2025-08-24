@@ -316,7 +316,7 @@
             if (audioStarted) return;
             Tone.start();
             explosionSynth = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.15, sustain: 0 } }).toDestination();
-            matchStrikeSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0 } }).toDestination();
+            matchStrikeSynth = new Tone.NoiseSynth({ noise: { type: 'pink' }, volume: -20, envelope: { attack: 0.001, decay: 0.5, sustain: 1 } }).toDestination();
             oxygenFlameSynth = new Tone.NoiseSynth({ noise: { type: 'pink', playbackRate: 0.5 }, volume: -20, envelope: { attack: 0.1, decay: 0.2, sustain: 1.0 } }).toDestination();
             explosionSynth.triggerAttackRelease("32n", "+0.1", 0);
             matchStrikeSynth.triggerAttackRelease("32n", "+0.1", 0);
@@ -470,6 +470,7 @@
     </script>
 </body>
 </html>
+
 
 
 
