@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Three.js Kuplintaefekti - Viimeistelty</title>
+    <title>Three.js Kuplintaefekti - Kamera Yläviistoon</title>
     <style>
         body { margin: 0; background-color: #111; color: #eee; overflow: hidden; font-family: sans-serif; }
         canvas { display: block; }
@@ -45,6 +45,7 @@
         let matchstickTargetPosition = null;
         const MATCHSTICK_START_POS = new THREE.Vector3(-4, 5, 0);
         let simulationStarted = false;
+        let audioListener, matchStrikeSound, oxygenSound, hydrogenSound;
 
         // --- Materiaalit ---
         const glassMaterial = new THREE.MeshPhysicalMaterial({
@@ -58,12 +59,14 @@
 
         // --- Alustusfunktio ---
         function init() {
-            camera.position.set(0, 4, 10);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.toneMapping = THREE.ACESFilmicToneMapping;
             document.body.appendChild(renderer.domElement);
-            controls.target.set(0, 1.5, 0);
+            
+            // MUUTETTU: Nostettu kameran katselukohtaa (target) ja kameran omaa Y-positiota
+            controls.target.set(0, 2.0, 0); // Esim. 2.0 sijaan 1.5
+            camera.position.y = 2.5;         // Nostettu kameran korkeutta
             
             new RGBELoader().load('https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_03_1k.hdr', (texture) => {
                 texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -76,18 +79,51 @@
             createTestTube(new THREE.Vector3(0, 1.5, 0), 0.25, 'o2');
             createTestTube(new THREE.Vector3(2.0, 1.5, 0), 0.25, 'h2');
             createMatchstick();
+            
+            initAudio();
+            updateCamera(); // Tämä asettaa Z-position, mutta Y-position ja target ovat jo asetettu
+        }
+
+        // --- Responsiivinen kameralogiikka ---
+        function updateCamera() {
+            const contentWidth = 9; 
+            const contentHeight = 6;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            const fov = camera.fov * (Math.PI / 180);
+            const distHeight = (contentHeight / 2) / Math.tan(fov / 2);
+            const distWidth = (contentWidth / 2) / (Math.tan(fov / 2) * camera.aspect);
+            const distance = Math.max(distHeight, distWidth);
+            camera.position.z = distance * 1.2;
+            camera.updateProjectionMatrix();
+        }
+
+        // --- Äänien alustus ---
+        function initAudio() {
+            audioListener = new THREE.AudioListener();
+            camera.add(audioListener);
+            const audioLoader = new THREE.AudioLoader();
+            
+            matchStrikeSound = new THREE.Audio(audioListener);
+            audioLoader.load('tulitikku.mp3', (buffer) => { matchStrikeSound.setBuffer(buffer); });
+            
+            oxygenSound = new THREE.Audio(audioListener);
+            audioLoader.load('happi.mp3', (buffer) => { 
+                oxygenSound.setBuffer(buffer);
+                oxygenSound.setLoop(true);
+            });
+            
+            hydrogenSound = new THREE.Audio(audioListener);
+            audioLoader.load('vety.mp3', (buffer) => { hydrogenSound.setBuffer(buffer); });
         }
 
         // --- Scenen rakennus ja partikkelit ---
         function createTestTube(position, liquidLevel, id) {
             const group = new THREE.Group();
             const radius = 0.5, tubeHeight = 3.0, wallThickness = 0.05;
-            
             const glassGeom = BufferGeometryUtils.mergeGeometries([ new THREE.SphereGeometry(radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI), new THREE.CylinderGeometry(radius, radius, tubeHeight, 32, 1, true).translate(0, tubeHeight / 2, 0) ]);
             const glassMesh = new THREE.Mesh(glassGeom, glassMaterial.clone());
             glassMesh.renderOrder = 2;
             group.add(glassMesh);
-
             const liquidRadius = radius - wallThickness;
             const liquidTubeHeight = tubeHeight * liquidLevel;
             const liquidGeom = BufferGeometryUtils.mergeGeometries([ new THREE.SphereGeometry(liquidRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI), new THREE.CylinderGeometry(liquidRadius, liquidRadius, liquidTubeHeight, 32).translate(0, liquidTubeHeight / 2, 0) ]);
@@ -95,13 +131,11 @@
             liquidMesh.geometry.computeBoundingBox();
             liquidMesh.renderOrder = 1;
             group.add(liquidMesh);
-
             group.position.copy(position);
             scene.add(group);
             testTubes.push({ id, group, glassMesh, liquidBounds: liquidMesh.geometry.boundingBox, liquidRadius, reactionTriggered: false });
             clickableObjects.push(glassMesh);
         }
-
         function createMatchstick() {
             matchstick = new THREE.Group();
             matchstickHead = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), new THREE.MeshStandardMaterial({ color: 0x8B0000 }));
@@ -111,48 +145,14 @@
             matchstick.position.copy(MATCHSTICK_START_POS);
             scene.add(matchstick);
         }
-        
-        function createBubble(tubeData) {
-            const bubbleSize = Math.random() * 0.04 + 0.02;
-            const bubble = new THREE.Mesh(new THREE.SphereGeometry(bubbleSize, 8, 8), bubbleMaterial);
-            const angle = Math.random() * Math.PI * 2;
-            const spawnRadius = Math.random() * tubeData.liquidRadius * 0.9;
-            const liquidBottomY = tubeData.group.position.y + tubeData.liquidBounds.min.y;
-            bubble.position.set(tubeData.group.position.x + Math.cos(angle) * spawnRadius, liquidBottomY + bubbleSize, tubeData.group.position.z + Math.sin(angle) * spawnRadius);
-            bubble.userData.velocityY = Math.random() * 0.02 + 0.01;
-            bubble.userData.surfaceY = tubeData.group.position.y + tubeData.liquidBounds.max.y;
-            bubbles.push(bubble);
-            scene.add(bubble);
-        }
-
-        function createFlameParticle(origin) {
-            const particleSize = Math.random() * 0.1 * flameIntensity + 0.1;
-            const particle = new THREE.Mesh(new THREE.SphereGeometry(particleSize, 8, 8), flameMaterials[Math.floor(Math.random() * flameMaterials.length)]);
-            particle.position.copy(origin);
-            particle.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 0.02, (Math.random() * 0.03 + 0.04) * flameIntensity, (Math.random() - 0.5) * 0.02);
-            particle.userData.initialLifespan = Math.random() * 0.6 + 0.4;
-            particle.userData.lifespan = particle.userData.initialLifespan;
-            flameParticles.push(particle);
-            scene.add(particle);
-        }
-
-        function createSmokeParticle(origin) {
-            const particle = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), smokeMaterial.clone());
-            particle.position.copy(origin);
-            particle.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 0.01, Math.random() * 0.02 + 0.01, (Math.random() - 0.5) * 0.01);
-            particle.userData.lifespan = Math.random() * 1.0 + 0.5;
-            smokeParticles.push(particle);
-            scene.add(particle);
-        }
-
+        function createBubble(tubeData){const b=new THREE.Mesh(new THREE.SphereGeometry(Math.random()*.04+.02,8,8),bubbleMaterial);const a=Math.random()*Math.PI*2;const r=Math.random()*tubeData.liquidRadius*.9;b.position.set(tubeData.group.position.x+Math.cos(a)*r,tubeData.group.position.y+tubeData.liquidBounds.min.y+b.geometry.parameters.radius,tubeData.group.position.z+Math.sin(a)*r);b.userData.velocityY=Math.random()*.02+.01;b.userData.surfaceY=tubeData.group.position.y+tubeData.liquidBounds.max.y;bubbles.push(b);scene.add(b);}
+        function createFlameParticle(origin){const p=new THREE.Mesh(new THREE.SphereGeometry(Math.random()*.1*flameIntensity+.1,8,8),flameMaterials[Math.floor(Math.random()*flameMaterials.length)]);p.position.copy(origin);p.userData.velocity=new THREE.Vector3((Math.random()-.5)*.02,(Math.random()*.03+.04)*flameIntensity,(Math.random()-.5)*.02);p.userData.initialLifespan=Math.random()*.6+.4;p.userData.lifespan=p.userData.initialLifespan;flameParticles.push(p);scene.add(p);}
+        function createSmokeParticle(origin){const p=new THREE.Mesh(new THREE.SphereGeometry(.05,8,8),smokeMaterial.clone());p.position.copy(origin);p.userData.velocity=new THREE.Vector3((Math.random()-.5)*.01,Math.random()*.02+.01,(Math.random()-.5)*.01);p.userData.lifespan=Math.random()*1+.5;smokeParticles.push(p);scene.add(p);}
         function createExplosion(origin) {
-            // PALAUTETTU: Partikkelien määrä on nyt 150.
-            for (let i = 0; i < 150; i++) {
+            if (hydrogenSound) hydrogenSound.play();
+            for(let i = 0; i < 150; i++){
                 const particleSize = Math.random() * 0.15 + 0.05;
-                // PALAUTETTU: Geometria on taas pallo.
-                const particleGeom = new THREE.SphereGeometry(particleSize, 8, 8);
-                const particle = new THREE.Mesh(particleGeom, flameMaterials[Math.floor(Math.random() * flameMaterials.length)]);
-                
+                const particle = new THREE.Mesh(new THREE.SphereGeometry(particleSize, 8, 8), flameMaterials[Math.floor(Math.random() * flameMaterials.length)]);
                 particle.position.copy(origin);
                 particle.userData.velocity = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(Math.random() * 1.5 + 0.5);
                 particle.userData.lifespan = Math.random() * 0.5 + 0.3;
@@ -164,13 +164,15 @@
 
         // --- Ohjauslogiikka ---
         document.getElementById('start-button').addEventListener('click', () => {
+            if (audioListener.context.state === 'suspended') { audioListener.context.resume(); }
             document.getElementById('overlay').style.display = 'none';
             renderer.compile(scene, camera);
             simulationStarted = true;
             animate();
         }, { once: true });
-
-        document.getElementById('light-match-button').addEventListener('click', () => { if (simulationStarted) isMatchLit = true; });
+        document.getElementById('light-match-button').addEventListener('click', () => { 
+            if (simulationStarted) { isMatchLit = true; if (matchStrikeSound && !matchStrikeSound.isPlaying) { matchStrikeSound.play(); } }
+        });
         document.getElementById('reset-button').addEventListener('click', () => { if (simulationStarted) resetSimulation(); });
         window.addEventListener('click', (event) => {
             if (!simulationStarted || event.target.tagName === 'BUTTON') return;
@@ -194,9 +196,14 @@
             });
             matchstick.position.copy(MATCHSTICK_START_POS);
             matchstickTargetPosition = null;
-            camera.position.set(0, 4, 10);
-            controls.target.set(0, 1.5, 0);
-            controls.update();
+            if (oxygenSound && oxygenSound.isPlaying) oxygenSound.stop();
+            
+            // MUUTETTU: Palautetaan kameran target ja y-positio myös resetissä
+            controls.target.set(0, 2.0, 0); // Sama kuin initissä
+            camera.position.y = 2.5;         // Sama kuin initissä
+            
+            updateCamera();
+            controls.update(); // Päivitetään ohjaimet muutosten jälkeen
         }
 
         // --- Animaatiolooppi ---
@@ -204,12 +211,9 @@
         function animate() {
             requestAnimationFrame(animate);
             if (!simulationStarted) return;
-
             const deltaTime = clock.getDelta();
 
-            if (Math.random() < 0.25) {
-                createBubble(testTubes[Math.floor(Math.random() * testTubes.length)]);
-            }
+            if (Math.random() < 0.25) {createBubble(testTubes[Math.floor(Math.random() * testTubes.length)]);}
             for (let i = bubbles.length - 1; i >= 0; i--) {const b=bubbles[i];b.position.y+=b.userData.velocityY;if(b.position.y>b.userData.surfaceY){scene.remove(b);bubbles.splice(i,1);}}
             if (matchstickTargetPosition) {matchstick.position.lerp(matchstickTargetPosition,.05);if(matchstick.position.distanceTo(matchstickTargetPosition)<.01){matchstickTargetPosition=null;}}
             
@@ -217,11 +221,23 @@
             flameIntensity = 1.0;
 
             if (isMatchLit) {
+                let matchIsInO2Zone = false;
+
                 for (const tube of testTubes) {
                     const tubeTopPos = new THREE.Vector3(tube.group.position.x, tube.group.position.y + 3.0, tube.group.position.z);
-                    if (flameOrigin.distanceTo(tubeTopPos) < 0.6 && !tube.reactionTriggered) {
-                        if (tube.id === 'co2') { isMatchLit = false; for(let i=0; i<20; i++) createSmokeParticle(flameOrigin); }
-                        if (tube.id === 'o2') { flameIntensity = 3.0; }
+                    const distance = flameOrigin.distanceTo(tubeTopPos);
+
+                    if (tube.id === 'o2' && distance < 0.6) {
+                        flameIntensity = 3.0; 
+                        matchIsInO2Zone = true;
+                    }
+
+                    if (distance < 0.6 && !tube.reactionTriggered) {
+                        if (tube.id === 'co2') { 
+                            isMatchLit = false; 
+                            for(let i=0; i<20; i++) createSmokeParticle(flameOrigin); 
+                            tube.reactionTriggered = true;
+                        }
                         if (tube.id === 'h2') {
                             isMatchLit = false;
                             createExplosion(tubeTopPos);
@@ -231,22 +247,23 @@
                         }
                     }
                 }
+
+                if (oxygenSound) {
+                    if (matchIsInO2Zone && !oxygenSound.isPlaying) {
+                        oxygenSound.play();
+                    } else if (!matchIsInO2Zone && oxygenSound.isPlaying) {
+                        oxygenSound.stop();
+                    }
+                }
+                
                 if (Math.random() < 0.6) { createFlameParticle(flameOrigin); }
-            }
-            
-            for (let i = flameParticles.length - 1; i >= 0; i--) {
-                const particle = flameParticles[i];
-                particle.userData.lifespan -= deltaTime;
-                if (particle.userData.lifespan <= 0) {
-                    scene.remove(particle);
-                    flameParticles.splice(i, 1);
-                } else {
-                    particle.position.add(particle.userData.velocity); // addScaledVector on parempi, mutta pidetään tämä alkuperäisenä
-                    const lifePercent = particle.userData.lifespan / particle.userData.initialLifespan;
-                    // PALAUTETTU: Skaalauslogiikka on nyt alkuperäinen.
-                    particle.scale.setScalar(lifePercent * flameIntensity);
+            } else {
+                 if (oxygenSound && oxygenSound.isPlaying) {
+                    oxygenSound.stop();
                 }
             }
+            
+            for (let i = flameParticles.length - 1; i >= 0; i--) {const p=flameParticles[i];p.userData.lifespan-=deltaTime;if(p.userData.lifespan<=0){scene.remove(p);flameParticles.splice(i,1);}else{p.position.add(p.userData.velocity);const l=p.userData.lifespan/p.userData.initialLifespan;p.scale.setScalar(l*flameIntensity);}}
             for (let i = smokeParticles.length - 1; i >= 0; i--) {const p=smokeParticles[i];p.userData.lifespan-=deltaTime;if(p.userData.lifespan<=0){scene.remove(p);smokeParticles.splice(i,1);}else{p.position.add(p.userData.velocity);p.material.opacity=p.userData.lifespan/1.5;}}
 
             controls.update();
@@ -254,8 +271,7 @@
         }
         
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+            updateCamera();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
