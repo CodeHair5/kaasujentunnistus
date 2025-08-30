@@ -3,9 +3,6 @@
 This project uses [three.js](https://threejs.org/), which is licensed under the MIT License.  
 The original license text can be found here: https://github.com/mrdoob/three.js/blob/dev/LICENSE
 
-This project uses also [Tone.js](https://tonejs.github.io/), which is licensed under the MIT License.  
-The original license text can be found here: https://github.com/Tonejs/Tone.js/blob/main/LICENSE
-
 
 ### Custom Code
 
